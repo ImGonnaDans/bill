@@ -193,24 +193,28 @@ class AutoAddBillActivity : ComponentActivity() {
                     Text("类别", style = MaterialTheme.typography.labelLarge)
                     Spacer(modifier = Modifier.height(4.dp))
                     if (categories.isNotEmpty()) {
-                        androidx.compose.foundation.layout.FlowRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
-                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)
-                        ) {
-                            categories.forEach { cat ->
-                                val isSelected = currentCategory == cat
-                                val typeColor = if (currentBillType == BillType.EXPENSE) ExpenseColor else IncomeColor
-                                androidx.compose.material3.FilterChip(
-                                    selected = isSelected,
-                                    onClick = { currentCategory = cat },
-                                    label = { Text(cat) },
-                                    colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = typeColor.copy(alpha = 0.15f),
-                                        selectedLabelColor = typeColor
+                        val chunked = categories.chunked(3)
+                        chunked.forEach { rowCats ->
+                            androidx.compose.foundation.layout.Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)
+                            ) {
+                                rowCats.forEach { cat ->
+                                    val isSelected = currentCategory == cat
+                                    val typeColor = if (currentBillType == BillType.EXPENSE) ExpenseColor else IncomeColor
+                                    androidx.compose.material3.FilterChip(
+                                        selected = isSelected,
+                                        onClick = { currentCategory = cat },
+                                        label = { Text(cat) },
+                                        modifier = Modifier.weight(1f),
+                                        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = typeColor.copy(alpha = 0.15f),
+                                            selectedLabelColor = typeColor
+                                        )
                                     )
-                                )
+                                }
                             }
+                            Spacer(modifier = Modifier.height(6.dp))
                         }
                     } else {
                         Text("暂无类别", color = androidx.compose.ui.graphics.Color.Gray)
