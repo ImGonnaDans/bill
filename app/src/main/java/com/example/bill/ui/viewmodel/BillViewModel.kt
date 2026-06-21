@@ -11,6 +11,7 @@ import com.example.bill.data.AppDatabase
 import com.example.bill.data.Bill
 import com.example.bill.data.BillRepository
 import com.example.bill.data.BillType
+import com.example.bill.data.CategoryBreakdown
 import com.example.bill.data.CategoryDao
 import com.example.bill.data.CategoryEntity
 import com.example.bill.data.CategoryTotal
@@ -27,15 +28,36 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 
+enum class StatsMode {
+    YEAR, MONTH, CUSTOM
+}
+
+data class MonthSummary(
+    val totalExpense: Long = 0,
+    val totalIncome: Long = 0
+)
+
 class BillViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: BillRepository
     private val categoryDao: CategoryDao
 
     private val prefs = application.getSharedPreferences("bill_prefs", Context.MODE_PRIVATE)
+    private val autoAddPrefs = application.getSharedPreferences("auto_add_prefs", Context.MODE_PRIVATE)
 
     private val _avatarUri = MutableStateFlow<String?>(prefs.getString("avatar_uri", null))
     val avatarUri: StateFlow<String?> = _avatarUri
+
+    private val _autoAddDelaySeconds = MutableStateFlow(
+        autoAddPrefs.getInt("auto_add_delay_seconds", 5)
+    )
+    val autoAddDelaySeconds: StateFlow<Int> = _autoAddDelaySeconds
+
+    fun setAutoAddDelaySeconds(seconds: Int) {
+        val clamped = seconds.coerceIn(1, 30)
+        _autoAddDelaySeconds.value = clamped
+        autoAddPrefs.edit().putInt("auto_add_delay_seconds", clamped).apply()
+    }
 
     fun setAvatarUri(uri: String?) {
         _avatarUri.value = uri
@@ -44,25 +66,73 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
 
     val allBills: StateFlow<List<Bill>>
 
-    private val _selectedDateMillis = MutableStateFlow(System.currentTimeMillis())
-    val selectedDateMillis: StateFlow<Long> = _selectedDateMillis
+    // ===== Bill Page: Month Summary =====
+    private val _monthSummary = MutableStateFlow(MonthSummary())
+    val monthSummary: StateFlow<MonthSummary> = _monthSummary
 
-    val billsForSelectedDate: StateFlow<List<Bill>>
+    private val _currentMonthStart = MutableStateFlow(startOfCurrentMonthMillis())
+    private val _currentMonthEnd = MutableStateFlow(endOfCurrentMonthMillis())
 
-    private val _statsStartMillis = MutableStateFlow(startOfCurrentMonth())
-    val statsStartMillis: StateFlow<Long> = _statsStartMillis
+    fun refreshMonthSummary() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val start = _currentMonthStart.value
+            val end = _currentMonthEnd.value
+            val expense = repository.getTotalByTypeBetweenSuspend(start, end, BillType.EXPENSE) ?: 0L
+            val income = repository.getTotalByTypeBetweenSuspend(start, end, BillType.INCOME) ?: 0L
+            _monthSummary.value = MonthSummary(totalExpense = expense, totalIncome = income)
+        }
+    }
 
-    private val _statsEndMillis = MutableStateFlow(endOfCurrentMonth())
-    val statsEndMillis: StateFlow<Long> = _statsEndMillis
+    // ===== Stats Page: Mode & Period =====
+    private val _statsMode = MutableStateFlow(StatsMode.MONTH)
+    val statsMode: StateFlow<StatsMode> = _statsMode
 
-    private val _selectedStatsType = MutableStateFlow(BillType.EXPENSE)
-    val selectedStatsType: StateFlow<BillType> = _selectedStatsType
+    fun setStatsMode(mode: StatsMode) {
+        _statsMode.value = mode
+        recalcStatsPeriod()
+    }
 
+    // Year navigation
     private val _statsYear = MutableStateFlow(getCurrentYear())
     val statsYear: StateFlow<Int> = _statsYear
 
+    // Month navigation (1-based)
     private val _statsMonth = MutableStateFlow(getCurrentMonth())
     val statsMonth: StateFlow<Int> = _statsMonth
+
+    // Custom range
+    private val _customStartMillis = MutableStateFlow(startOfCurrentMonthMillis())
+    val customStartMillis: StateFlow<Long> = _customStartMillis
+
+    private val _customEndMillis = MutableStateFlow(endOfCurrentMonthMillis())
+    val customEndMillis: StateFlow<Long> = _customEndMillis
+
+    // Computed stats period
+    private val _statsStartMillis = MutableStateFlow(0L)
+    val statsStartMillis: StateFlow<Long> = _statsStartMillis
+
+    private val _statsEndMillis = MutableStateFlow(0L)
+    val statsEndMillis: StateFlow<Long> = _statsEndMillis
+
+    // Stats type selection
+    private val _selectedStatsType = MutableStateFlow(BillType.EXPENSE)
+    val selectedStatsType: StateFlow<BillType> = _selectedStatsType
+
+    // Stats data (loaded on demand)
+    private val _statsExpenseTotal = MutableStateFlow(0L)
+    val statsExpenseTotal: StateFlow<Long> = _statsExpenseTotal
+
+    private val _statsIncomeTotal = MutableStateFlow(0L)
+    val statsIncomeTotal: StateFlow<Long> = _statsIncomeTotal
+
+    private val _statsCount = MutableStateFlow(0)
+    val statsCount: StateFlow<Int> = _statsCount
+
+    private val _statsDailyAvg = MutableStateFlow(0.0)
+    val statsDailyAvg: StateFlow<Double> = _statsDailyAvg
+
+    private val _statsCategoryBreakdown = MutableStateFlow<List<CategoryBreakdown>>(emptyList())
+    val statsCategoryBreakdown: StateFlow<List<CategoryBreakdown>> = _statsCategoryBreakdown
 
     init {
         val database = AppDatabase.getDatabase(application)
@@ -72,21 +142,126 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         allBills = repository.getAllBills()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        billsForSelectedDate = combine(
-            repository.getAllBills(),
-            _selectedDateMillis
-        ) { bills, dateMillis ->
-            val cal = Calendar.getInstance().apply { timeInMillis = dateMillis }
-            val year = cal.get(Calendar.YEAR)
-            val month = cal.get(Calendar.MONTH)
-            val day = cal.get(Calendar.DAY_OF_MONTH)
-            bills.filter { bill ->
-                val bc = Calendar.getInstance().apply { timeInMillis = bill.dateMillis }
-                bc.get(Calendar.YEAR) == year &&
-                        bc.get(Calendar.MONTH) == month &&
-                        bc.get(Calendar.DAY_OF_MONTH) == day
+        // Initialize period
+        recalcStatsPeriod()
+        refreshMonthSummary()
+    }
+
+    private fun recalcStatsPeriod() {
+        val mode = _statsMode.value
+        val year = _statsYear.value
+        val month = _statsMonth.value
+
+        when (mode) {
+            StatsMode.YEAR -> {
+                val cal = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, year)
+                    set(Calendar.MONTH, 0)
+                    set(Calendar.DAY_OF_MONTH, 1)
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                _statsStartMillis.value = cal.timeInMillis
+                cal.set(Calendar.MONTH, 11)
+                cal.set(Calendar.DAY_OF_MONTH, 31)
+                cal.set(Calendar.HOUR_OF_DAY, 23)
+                cal.set(Calendar.MINUTE, 59)
+                cal.set(Calendar.SECOND, 59)
+                cal.set(Calendar.MILLISECOND, 999)
+                _statsEndMillis.value = cal.timeInMillis
             }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            StatsMode.MONTH -> {
+                val cal = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, year)
+                    set(Calendar.MONTH, month - 1)
+                    set(Calendar.DAY_OF_MONTH, 1)
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                _statsStartMillis.value = cal.timeInMillis
+                cal.set(Calendar.DAY_OF_MONTH, cal.getActualMaximum(Calendar.DAY_OF_MONTH))
+                cal.set(Calendar.HOUR_OF_DAY, 23)
+                cal.set(Calendar.MINUTE, 59)
+                cal.set(Calendar.SECOND, 59)
+                cal.set(Calendar.MILLISECOND, 999)
+                _statsEndMillis.value = cal.timeInMillis
+            }
+            StatsMode.CUSTOM -> {
+                // Use custom values directly
+            }
+        }
+        loadStatsData()
+    }
+
+    fun loadStatsData() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val start = _statsStartMillis.value
+            val end = _statsEndMillis.value
+            val type = _selectedStatsType.value
+
+            val expense = repository.getTotalByTypeBetweenSuspend(start, end, BillType.EXPENSE) ?: 0L
+            val income = repository.getTotalByTypeBetweenSuspend(start, end, BillType.INCOME) ?: 0L
+            val count = repository.getCountByTypeBetween(start, end, type)
+            val breakdown = repository.getCategoryBreakdownBetween(start, end, type)
+
+            // Calculate daily average (number of days in period)
+            val days = ((end - start) / 86400000 + 1).coerceAtLeast(1)
+
+            _statsExpenseTotal.value = expense
+            _statsIncomeTotal.value = income
+            _statsCount.value = count
+            _statsDailyAvg.value = if (count > 0) count.toDouble() / days else 0.0
+            _statsCategoryBreakdown.value = breakdown
+        }
+    }
+
+    // ===== Year Navigation =====
+    fun increaseYear() {
+        _statsYear.value = _statsYear.value + 1
+        recalcStatsPeriod()
+    }
+
+    fun decreaseYear() {
+        _statsYear.value = _statsYear.value - 1
+        recalcStatsPeriod()
+    }
+
+    // ===== Month Navigation =====
+    fun increaseMonth() {
+        var y = _statsYear.value
+        var m = _statsMonth.value + 1
+        if (m > 12) { m = 1; y++ }
+        _statsYear.value = y
+        _statsMonth.value = m
+        recalcStatsPeriod()
+    }
+
+    fun decreaseMonth() {
+        var y = _statsYear.value
+        var m = _statsMonth.value - 1
+        if (m < 1) { m = 12; y-- }
+        _statsYear.value = y
+        _statsMonth.value = m
+        recalcStatsPeriod()
+    }
+
+    // ===== Custom Range =====
+    fun setCustomRange(startMillis: Long, endMillis: Long) {
+        _customStartMillis.value = startMillis
+        _customEndMillis.value = endMillis
+        _statsStartMillis.value = startMillis
+        _statsEndMillis.value = endMillis
+        loadStatsData()
+    }
+
+    // ===== Stats Type =====
+    fun setSelectedStatsType(type: BillType) {
+        _selectedStatsType.value = type
+        loadStatsData()
     }
 
     // ===== Bill CRUD =====
@@ -102,6 +277,8 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                     note = note
                 )
             )
+            refreshMonthSummary()
+            loadStatsData()
         }
     }
 
@@ -117,16 +294,26 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                     note = note
                 )
             )
+            refreshMonthSummary()
+            loadStatsData()
         }
     }
 
     fun deleteBill(bill: Bill) {
         viewModelScope.launch {
             repository.delete(bill)
+            refreshMonthSummary()
+            loadStatsData()
         }
     }
 
     // ===== Category Management =====
+
+    fun getDailyTotalsBetween(startMillis: Long, endMillis: Long, type: BillType): Flow<List<DailyTotal>> =
+        repository.getDailyTotalsBetween(startMillis, endMillis, type)
+
+    fun getCategoryTotalsBetween(startMillis: Long, endMillis: Long, type: BillType): Flow<List<CategoryTotal>> =
+        repository.getCategoryTotalsBetween(startMillis, endMillis, type)
 
     fun getCategoriesByType(type: BillType): Flow<List<CategoryEntity>> =
         categoryDao.getCategoriesByType(type)
@@ -154,6 +341,8 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
             val count = repository.updateCategoryNameInBills(oldCategory.name, newName, oldCategory.type)
             categoryDao.update(oldCategory.copy(name = newName))
             _operationMessage.value = "已修改 $count 条账单的类别为「$newName」"
+            refreshMonthSummary()
+            loadStatsData()
         }
     }
 
@@ -162,6 +351,8 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
             val count = repository.deleteBillsByCategory(category.name, category.type)
             categoryDao.delete(category)
             _operationMessage.value = "已删除 $count 条账单"
+            refreshMonthSummary()
+            loadStatsData()
         }
     }
 
@@ -171,66 +362,10 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             categoryDao.deleteAllBills()
             _operationMessage.value = "已删除所有账单数据"
+            refreshMonthSummary()
+            loadStatsData()
         }
     }
-
-    // ===== Stats Queries =====
-
-    fun setSelectedDate(dateMillis: Long) {
-        _selectedDateMillis.value = dateMillis
-    }
-
-    fun setStatsPeriod(year: Int, month: Int) {
-        _statsYear.value = year
-        _statsMonth.value = month
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.YEAR, year)
-            set(Calendar.MONTH, month - 1)
-            set(Calendar.DAY_OF_MONTH, 1)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        _statsStartMillis.value = cal.timeInMillis
-
-        cal.set(Calendar.DAY_OF_MONTH, cal.getActualMaximum(Calendar.DAY_OF_MONTH))
-        cal.set(Calendar.HOUR_OF_DAY, 23)
-        cal.set(Calendar.MINUTE, 59)
-        cal.set(Calendar.SECOND, 59)
-        cal.set(Calendar.MILLISECOND, 999)
-        _statsEndMillis.value = cal.timeInMillis
-    }
-
-    fun setStatsCustomPeriod(startMillis: Long, endMillis: Long) {
-        _statsStartMillis.value = startMillis
-        _statsEndMillis.value = endMillis
-    }
-
-    fun setSelectedStatsType(type: BillType) {
-        _selectedStatsType.value = type
-    }
-
-    fun getBillsBetween(startMillis: Long, endMillis: Long): Flow<List<Bill>> =
-        repository.getBillsBetween(startMillis, endMillis)
-
-    fun getBillsBetweenByType(startMillis: Long, endMillis: Long, type: BillType): Flow<List<Bill>> =
-        repository.getBillsBetweenByType(startMillis, endMillis, type)
-
-    fun getTotalByTypeBetween(startMillis: Long, endMillis: Long, type: BillType): Flow<Long?> =
-        repository.getTotalByTypeBetween(startMillis, endMillis, type)
-
-    fun getCategoryTotalsBetween(startMillis: Long, endMillis: Long, type: BillType): Flow<List<CategoryTotal>> =
-        repository.getCategoryTotalsBetween(startMillis, endMillis, type)
-
-    fun getDailyTotalsBetween(startMillis: Long, endMillis: Long, type: BillType): Flow<List<DailyTotal>> =
-        repository.getDailyTotalsBetween(startMillis, endMillis, type)
-
-    fun getTotalExpenseBetween(startMillis: Long, endMillis: Long): Flow<Long?> =
-        repository.getTotalByTypeBetween(startMillis, endMillis, BillType.EXPENSE)
-
-    fun getTotalIncomeBetween(startMillis: Long, endMillis: Long): Flow<Long?> =
-        repository.getTotalByTypeBetween(startMillis, endMillis, BillType.INCOME)
 
     // ===== Excel Import / Export =====
 
@@ -287,7 +422,6 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                // Read ALL bytes first, then parse — avoids ContentResolver stream issues
                 val fileBytes = withContext(Dispatchers.IO) {
                     inputStream.use { it.readBytes() }
                 }
@@ -295,32 +429,17 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                 if (fileBytes.size >= 4) {
                     val magic = fileBytes.take(4).joinToString("") { "%02x".format(it) }
                     Log.d("IMPORT", "First 4 bytes (ZIP magic): $magic")
-                    if (magic != "504b0304") {
-                        Log.e("IMPORT", "NOT a valid ZIP file! Expected PK\\u0003\\u0004 but got $magic")
-                    }
-                } else {
-                    Log.e("IMPORT", "File too small: ${fileBytes.size} bytes")
                 }
 
                 val result = withContext(Dispatchers.IO) {
                     ExcelManager().importFromExcelBytes(fileBytes)
                 }
 
-                Log.d("IMPORT", "result: rows=${result.rows.size}, errors=${result.errors.size}")
-                if (result.rows.isNotEmpty()) {
-                    Log.d("IMPORT", "first row sample: type=${result.rows[0].type}, cat=${result.rows[0].category}, amount=${result.rows[0].amountInCents}")
-                } else {
-                    Log.w("IMPORT", "No rows parsed. Checking errors...")
-                    result.errors.forEach { Log.w("IMPORT", "  error: $it") }
-                }
-
                 var importedCount = 0
                 if (result.rows.isNotEmpty()) {
                     withContext(Dispatchers.IO) {
                         for (row in result.rows) {
-                            // Auto-create category if it does not exist
                             ensureCategoryExists(row.category, row.type)
-                            // Insert bill
                             repository.insert(
                                 Bill(
                                     type = row.type,
@@ -346,6 +465,8 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 _operationMessage.value = msg
+                refreshMonthSummary()
+                loadStatsData()
             } catch (e: Exception) {
                 _operationMessage.value = "导入失败: ${e.message}"
             } finally {
@@ -373,7 +494,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     companion object {
-        fun startOfCurrentMonth(): Long {
+        fun startOfCurrentMonthMillis(): Long {
             val cal = Calendar.getInstance().apply {
                 set(Calendar.DAY_OF_MONTH, 1)
                 set(Calendar.HOUR_OF_DAY, 0)
@@ -384,7 +505,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
             return cal.timeInMillis
         }
 
-        fun endOfCurrentMonth(): Long {
+        fun endOfCurrentMonthMillis(): Long {
             val cal = Calendar.getInstance().apply {
                 set(Calendar.DAY_OF_MONTH, getActualMaximum(Calendar.DAY_OF_MONTH))
                 set(Calendar.HOUR_OF_DAY, 23)

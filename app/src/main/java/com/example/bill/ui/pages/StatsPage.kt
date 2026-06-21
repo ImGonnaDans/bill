@@ -1,8 +1,7 @@
 package com.example.bill.ui.pages
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,67 +12,94 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.bill.data.BillType
+import com.example.bill.data.CategoryTotal
+import com.example.bill.data.DailyTotal
 import com.example.bill.ui.components.LineChart
 import com.example.bill.ui.components.PieChart
 import com.example.bill.ui.theme.BalanceColor
 import com.example.bill.ui.theme.ExpenseColor
 import com.example.bill.ui.theme.IncomeColor
 import com.example.bill.ui.viewmodel.BillViewModel
-import kotlinx.coroutines.flow.Flow
-import com.example.bill.data.CategoryTotal
-import com.example.bill.data.DailyTotal
+import com.example.bill.ui.viewmodel.StatsMode
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
-    val selectedStatsType by viewModel.selectedStatsType.collectAsState()
+    val statsMode by viewModel.statsMode.collectAsState()
     val statsYear by viewModel.statsYear.collectAsState()
     val statsMonth by viewModel.statsMonth.collectAsState()
     val statsStart by viewModel.statsStartMillis.collectAsState()
     val statsEnd by viewModel.statsEndMillis.collectAsState()
+    val selectedStatsType by viewModel.selectedStatsType.collectAsState()
 
-    // Stats data flows
-    val expenseTotal by viewModel.getTotalByTypeBetween(statsStart, statsEnd, BillType.EXPENSE)
-        .collectAsState(initial = null)
-    val incomeTotal by viewModel.getTotalByTypeBetween(statsStart, statsEnd, BillType.INCOME)
-        .collectAsState(initial = null)
+    val expenseTotal by viewModel.statsExpenseTotal.collectAsState()
+    val incomeTotal by viewModel.statsIncomeTotal.collectAsState()
+    val statsCount by viewModel.statsCount.collectAsState()
+    val statsDailyAvg by viewModel.statsDailyAvg.collectAsState()
+    val categoryBreakdown by viewModel.statsCategoryBreakdown.collectAsState()
 
-    val categoryTotals by viewModel.getCategoryTotalsBetween(statsStart, statsEnd, selectedStatsType)
-        .collectAsState(initial = emptyList())
-    val dailyTotals by viewModel.getDailyTotalsBetween(statsStart, statsEnd, selectedStatsType)
-        .collectAsState(initial = emptyList())
+    val pagerState = rememberPagerState(
+        initialPage = 1, // Start at MONTH tab
+        pageCount = { 3 }
+    )
+    val scope = rememberCoroutineScope()
 
-    val expense = expenseTotal ?: 0L
-    val income = incomeTotal ?: 0L
-    val balance = income - expense
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINESE)
+    val yearMonthFormat = SimpleDateFormat("yyyy年", Locale.CHINESE)
+    val monthFormat = SimpleDateFormat("yyyy年M月", Locale.CHINESE)
+
+    // Load data initially and when mode changes
+    LaunchedEffect(statsMode, statsStart, statsEnd) {
+        viewModel.loadStatsData()
+    }
+
+    // Recalculate category totals and daily totals from breakdown data
+    val categoryTotals = remember(categoryBreakdown) {
+        categoryBreakdown.map { CategoryTotal(category = it.category, total = it.total) }
+    }
+
+    // Compute daily totals from the breakdown for the line chart (we need to use the raw flow)
+    // For now, we'll compute a placeholder - the LineChart needs DailyTotal data
+    // We'll get dailyTotals from the ViewModel's categoryTotalsByType flow (but we need DailyTotals)
+    // Let's use the viewModel's existing method - it should be reactive
 
     Column(
         modifier = modifier
@@ -81,7 +107,7 @@ fun StatsPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        // Period selector - Year/Month
+        // Title
         Text(
             text = "统计",
             style = MaterialTheme.typography.headlineMedium,
@@ -90,281 +116,552 @@ fun StatsPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Year-Month selector
-        YearMonthSelector(
-            year = statsYear,
-            month = statsMonth,
-            onYearMonthChanged = { y, m -> viewModel.setStatsPeriod(y, m) }
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Type switcher buttons
+        // ===== Tab Selector (Year / Month / Custom) =====
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            StatsTypeButton(
-                text = "支出",
-                isSelected = selectedStatsType == BillType.EXPENSE,
-                color = ExpenseColor,
-                onClick = { viewModel.setSelectedStatsType(BillType.EXPENSE) },
-                modifier = Modifier.weight(1f)
-            )
-            StatsTypeButton(
-                text = "收入",
-                isSelected = selectedStatsType == BillType.INCOME,
-                color = IncomeColor,
-                onClick = { viewModel.setSelectedStatsType(BillType.INCOME) },
-                modifier = Modifier.weight(1f)
-            )
-            StatsTypeButton(
-                text = "结余",
-                isSelected = false,
-                color = BalanceColor,
-                onClick = {
-                    // Toggle to a special "balance" mode - just disable selection highlight
-                    // We handle this differently
-                },
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Summary card
-        if (selectedStatsType == BillType.EXPENSE || selectedStatsType == BillType.INCOME) {
-            SummaryCard(
-                expense = expense,
-                income = income,
-                type = selectedStatsType,
-                total = if (selectedStatsType == BillType.EXPENSE) expense else income
-            )
-        } else {
-            // Balance mode
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = BalanceColor.copy(alpha = 0.1f)),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("结余", style = MaterialTheme.typography.labelLarge, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = String.format("%.2f", balance / 100.0),
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = if (balance >= 0) IncomeColor else ExpenseColor
+            listOf("按年", "按月", "自定义").forEachIndexed { index, label ->
+                val isSelected = when (index) {
+                    0 -> statsMode == StatsMode.YEAR
+                    1 -> statsMode == StatsMode.MONTH
+                    2 -> statsMode == StatsMode.CUSTOM
+                    else -> false
+                }
+                OutlinedButton(
+                    onClick = {
+                        scope.launch { pagerState.animateScrollToPage(index) }
+                        viewModel.setStatsMode(
+                            when (index) {
+                                0 -> StatsMode.YEAR
+                                1 -> StatsMode.MONTH
+                                else -> StatsMode.CUSTOM
+                            }
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.5.dp,
+                        if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("收入", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                            Text(
-                                String.format("%.2f", income / 100.0),
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = IncomeColor
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("支出", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                            Text(
-                                String.format("%.2f", expense / 100.0),
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = ExpenseColor
-                            )
-                        }
-                    }
+                ) {
+                    Text(
+                        text = label,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        fontSize = 14.sp
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // Pie chart section
-        if (selectedStatsType == BillType.EXPENSE || selectedStatsType == BillType.INCOME) {
-            val totalAmount = categoryTotals.sumOf { it.total }
-            Text(
-                text = "分类占比",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                PieChart(
-                    categoryTotals = categoryTotals,
-                    totalAmount = totalAmount
+        // ===== Time Navigation =====
+        when (statsMode) {
+            StatsMode.YEAR -> {
+                YearNavigator(
+                    year = statsYear,
+                    startDate = dateFormat.format(Date(statsStart)),
+                    endDate = dateFormat.format(Date(statsEnd)),
+                    onPrev = { viewModel.decreaseYear() },
+                    onNext = { viewModel.increaseYear() }
                 )
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Line chart section
-            Text(
-                text = "每日趋势",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                LineChart(
-                    dailyTotals = dailyTotals,
+            StatsMode.MONTH -> {
+                MonthNavigator(
                     year = statsYear,
-                    month = statsMonth
+                    month = statsMonth,
+                    startDate = dateFormat.format(Date(statsStart)),
+                    endDate = dateFormat.format(Date(statsEnd)),
+                    onPrev = { viewModel.decreaseMonth() },
+                    onNext = { viewModel.increaseMonth() }
+                )
+            }
+            StatsMode.CUSTOM -> {
+                CustomDateSelector(
+                    startMillis = statsStart,
+                    endMillis = statsEnd,
+                    onRangeChanged = { start, end -> viewModel.setCustomRange(start, end) }
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ===== Type Selector Buttons with amounts =====
+        StatsTypeButtonRow(
+            expenseTotal = expenseTotal,
+            incomeTotal = incomeTotal,
+            balance = incomeTotal - expenseTotal,
+            selectedType = selectedStatsType,
+            onTypeSelected = { viewModel.setSelectedStatsType(it) }
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ===== Content Blocks based on selected type =====
+        when (selectedStatsType) {
+            BillType.EXPENSE -> {
+                StatsContentBlocks(
+                    type = BillType.EXPENSE,
+                    total = expenseTotal,
+                    count = statsCount,
+                    dailyAvg = statsDailyAvg,
+                    categoryBreakdown = categoryBreakdown,
+                    categoryTotals = categoryTotals,
+                    statsStart = statsStart,
+                    statsEnd = statsEnd,
+                    viewModel = viewModel
+                )
+            }
+            BillType.INCOME -> {
+                StatsContentBlocks(
+                    type = BillType.INCOME,
+                    total = incomeTotal,
+                    count = statsCount,
+                    dailyAvg = statsDailyAvg,
+                    categoryBreakdown = categoryBreakdown,
+                    categoryTotals = categoryTotals,
+                    statsStart = statsStart,
+                    statsEnd = statsEnd,
+                    viewModel = viewModel
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun YearNavigator(
+    year: Int,
+    startDate: String,
+    endDate: String,
+    onPrev: () -> Unit,
+    onNext: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            IconButton(onClick = onPrev) {
+                Text("<", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
+            Text(
+                text = "${year}年",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
+            IconButton(onClick = onNext) {
+                Text(">", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        Text(
+            text = "$startDate ~ $endDate",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.Gray
+        )
+    }
+}
+
+@Composable
+private fun MonthNavigator(
+    year: Int,
+    month: Int,
+    startDate: String,
+    endDate: String,
+    onPrev: () -> Unit,
+    onNext: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            IconButton(onClick = onPrev) {
+                Text("<", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
+            Text(
+                text = "${year}年${month}月",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
+            IconButton(onClick = onNext) {
+                Text(">", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        Text(
+            text = "$startDate ~ $endDate",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.Gray
+        )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun YearMonthSelector(
-    year: Int,
-    month: Int,
-    onYearMonthChanged: (Int, Int) -> Unit
+private fun CustomDateSelector(
+    startMillis: Long,
+    endMillis: Long,
+    onRangeChanged: (Long, Long) -> Unit
 ) {
-    var yearExpanded by remember { mutableStateOf(false) }
-    var monthExpanded by remember { mutableStateOf(false) }
-
-    val years = (2020..2030).toList()
-    val months = (1..12).toList()
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINESE)
+    var showStartPicker by remember { mutableStateOf(false) }
+    var showEndPicker by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // Year dropdown
-        ExposedDropdownMenuBox(
-            expanded = yearExpanded,
-            onExpandedChange = { yearExpanded = !yearExpanded },
-            modifier = Modifier.weight(1f)
+        OutlinedButton(
+            onClick = { showStartPicker = true },
+            shape = RoundedCornerShape(8.dp)
         ) {
-            OutlinedTextField(
-                value = "${year}年",
-                onValueChange = {},
-                readOnly = true,
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = yearExpanded) },
-                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                shape = RoundedCornerShape(8.dp)
-            )
-            ExposedDropdownMenu(
-                expanded = yearExpanded,
-                onDismissRequest = { yearExpanded = false }
-            ) {
-                years.forEach { y ->
-                    DropdownMenuItem(
-                        text = { Text("${y}年") },
-                        onClick = {
-                            onYearMonthChanged(y, month)
-                            yearExpanded = false
-                        }
-                    )
-                }
-            }
+            Text(dateFormat.format(Date(startMillis)))
         }
-
-        // Month dropdown
-        ExposedDropdownMenuBox(
-            expanded = monthExpanded,
-            onExpandedChange = { monthExpanded = !monthExpanded },
-            modifier = Modifier.weight(1f)
+        Text(
+            text = " ~ ",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+        OutlinedButton(
+            onClick = { showEndPicker = true },
+            shape = RoundedCornerShape(8.dp)
         ) {
-            OutlinedTextField(
-                value = "${month}月",
-                onValueChange = {},
-                readOnly = true,
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = monthExpanded) },
-                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                shape = RoundedCornerShape(8.dp)
-            )
-            ExposedDropdownMenu(
-                expanded = monthExpanded,
-                onDismissRequest = { monthExpanded = false }
-            ) {
-                months.forEach { m ->
-                    DropdownMenuItem(
-                        text = { Text("${m}月") },
-                        onClick = {
-                            onYearMonthChanged(year, m)
-                            monthExpanded = false
+            Text(dateFormat.format(Date(endMillis)))
+        }
+    }
+
+    if (showStartPicker) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = startMillis)
+        DatePickerDialog(
+            onDismissRequest = { showStartPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let { start ->
+                        if (start <= endMillis) {
+                            onRangeChanged(start, endMillis)
                         }
-                    )
-                }
+                    }
+                    showStartPicker = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStartPicker = false }) { Text("取消") }
             }
+        ) {
+            DatePicker(state = state)
+        }
+    }
+
+    if (showEndPicker) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = endMillis)
+        DatePickerDialog(
+            onDismissRequest = { showEndPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let { end ->
+                        val cal = Calendar.getInstance().apply { timeInMillis = end }
+                        cal.set(Calendar.HOUR_OF_DAY, 23)
+                        cal.set(Calendar.MINUTE, 59)
+                        cal.set(Calendar.SECOND, 59)
+                        cal.set(Calendar.MILLISECOND, 999)
+                        onRangeChanged(startMillis, cal.timeInMillis)
+                    }
+                    showEndPicker = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEndPicker = false }) { Text("取消") }
+            }
+        ) {
+            DatePicker(state = state)
         }
     }
 }
 
 @Composable
-private fun StatsTypeButton(
-    text: String,
-    isSelected: Boolean,
+private fun StatsTypeButtonRow(
+    expenseTotal: Long,
+    incomeTotal: Long,
+    balance: Long,
+    selectedType: BillType,
+    onTypeSelected: (BillType) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Expense Button
+        TypeAmountButton(
+            label = "支出",
+            amount = expenseTotal,
+            color = ExpenseColor,
+            isSelected = selectedType == BillType.EXPENSE,
+            onClick = { onTypeSelected(BillType.EXPENSE) },
+            modifier = Modifier.weight(1f)
+        )
+
+        // Income Button
+        TypeAmountButton(
+            label = "收入",
+            amount = incomeTotal,
+            color = IncomeColor,
+            isSelected = selectedType == BillType.INCOME,
+            onClick = { onTypeSelected(BillType.INCOME) },
+            modifier = Modifier.weight(1f)
+        )
+
+        // Balance Button
+        TypeAmountButton(
+            label = "结余",
+            amount = balance,
+            color = BalanceColor,
+            isSelected = false, // Balance is not a filterable type
+            onClick = { /* No action, just display */ },
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun TypeAmountButton(
+    label: String,
+    amount: Long,
     color: Color,
+    isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = if (isSelected) color else Color.Gray
+    Card(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) color.copy(alpha = 0.15f)
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ),
-        border = androidx.compose.foundation.BorderStroke(
-            2.dp,
-            if (isSelected) color else Color.Gray.copy(alpha = 0.5f)
-        )
+        border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, color) else null
     ) {
-        Text(text, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (isSelected) color else Color.Gray,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = String.format("%.2f", amount / 100.0),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (label == "结余") {
+                    if (amount >= 0) IncomeColor else ExpenseColor
+                } else color
+            )
+        }
     }
 }
 
 @Composable
-private fun SummaryCard(
-    expense: Long,
-    income: Long,
+private fun StatsContentBlocks(
     type: BillType,
-    total: Long
+    total: Long,
+    count: Int,
+    dailyAvg: Double,
+    categoryBreakdown: List<com.example.bill.data.CategoryBreakdown>,
+    categoryTotals: List<CategoryTotal>,
+    statsStart: Long,
+    statsEnd: Long,
+    viewModel: BillViewModel
 ) {
-    val color = if (type == BillType.EXPENSE) ExpenseColor else IncomeColor
-    val label = if (type == BillType.EXPENSE) "总支出" else "总收入"
+    val typeLabel = if (type == BillType.EXPENSE) "支出" else "收入"
+    val typeColor = if (type == BillType.EXPENSE) ExpenseColor else IncomeColor
 
+    // Get daily totals for line chart
+    val dailyTotals by viewModel.getDailyTotalsBetween(statsStart, statsEnd, type)
+        .collectAsState(initial = emptyList())
+
+    // Get category totals for pie chart
+    val catTotals by viewModel.getCategoryTotalsBetween(statsStart, statsEnd, type)
+        .collectAsState(initial = emptyList())
+
+    // Use the flow-based category totals (which include ALL categories, not just top ones)
+    val pieChartData = catTotals.ifEmpty { categoryTotals }
+
+    val totalAmount = pieChartData.sumOf { it.total }
+
+    // ===== Block 1: Data count + Daily average =====
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = color.copy(alpha = 0.1f)
-        ),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("数据条数", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "$count",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = typeColor
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("日均$typeLabel", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = String.format("%.1f", total / 100.0 / ((statsEnd - statsStart) / 86400000 + 1).coerceAtLeast(1)),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = typeColor
+                )
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    // ===== Block 2: Line Chart =====
+    Text(
+        text = "整体${typeLabel}趋势",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        val cal = Calendar.getInstance()
+        cal.timeInMillis = statsStart
+        val year = cal.get(Calendar.YEAR)
+        val month = cal.get(Calendar.MONTH) + 1
+        LineChart(
+            dailyTotals = dailyTotals,
+            year = year,
+            month = month
+        )
+    }
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    // ===== Block 3: Pie Chart =====
+    Text(
+        text = "${typeLabel}分类统计",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        PieChart(
+            categoryTotals = pieChartData,
+            totalAmount = totalAmount
+        )
+    }
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    // ===== Block 4: Category breakdown list =====
+    val breakdownData = if (categoryBreakdown.isNotEmpty()) categoryBreakdown
+    else pieChartData.map { com.example.bill.data.CategoryBreakdown(category = it.category, total = it.total, count = 0) }
+
+    Text(
+        text = "${typeLabel}分类明细",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(label, style = MaterialTheme.typography.labelLarge, color = Color.Gray)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = String.format("%.2f", total / 100.0),
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold,
-                color = color
-            )
+            if (breakdownData.isEmpty()) {
+                Text(
+                    text = "暂无数据",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(8.dp)
+                )
+            } else {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("分类", style = MaterialTheme.typography.labelMedium, color = Color.Gray, modifier = Modifier.weight(1f))
+                    Text("总金额", style = MaterialTheme.typography.labelMedium, color = Color.Gray, modifier = Modifier.width(80.dp), textAlign = TextAlign.End)
+                    Text("笔数", style = MaterialTheme.typography.labelMedium, color = Color.Gray, modifier = Modifier.width(50.dp), textAlign = TextAlign.End)
+                }
+                HorizontalDivider()
+
+                breakdownData.forEach { item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = item.category,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = String.format("%.2f", item.total / 100.0),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = typeColor,
+                            modifier = Modifier.width(80.dp),
+                            textAlign = TextAlign.End
+                        )
+                        Text(
+                            text = "${item.count}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.Gray,
+                            modifier = Modifier.width(50.dp),
+                            textAlign = TextAlign.End
+                        )
+                    }
+                }
+            }
         }
     }
 }

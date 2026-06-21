@@ -36,4 +36,16 @@ class BillRepository(private val billDao: BillDao) {
 
     suspend fun deleteBillsByCategory(category: String, type: BillType): Int =
         billDao.deleteBillsByCategory(category, type)
+
+    suspend fun getTotalByTypeBetweenSuspend(startMillis: Long, endMillis: Long, type: BillType): Long? =
+        billDao.getTotalByTypeBetweenSuspend(startMillis, endMillis, type)
+
+    suspend fun getCountByTypeBetween(startMillis: Long, endMillis: Long, type: BillType): Int =
+        billDao.getCountByTypeBetween(startMillis, endMillis, type)
+
+    suspend fun getCountBetween(startMillis: Long, endMillis: Long): Int =
+        billDao.getCountBetween(startMillis, endMillis)
+
+    suspend fun getCategoryBreakdownBetween(startMillis: Long, endMillis: Long, type: BillType): List<CategoryBreakdown> =
+        billDao.getCategoryBreakdownBetween(startMillis, endMillis, type)
 }

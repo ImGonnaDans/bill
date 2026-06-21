@@ -21,19 +21,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,8 +42,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.bill.data.Bill
 import com.example.bill.data.BillType
 import com.example.bill.ui.components.AddBillDialog
@@ -60,8 +58,8 @@ import java.util.Locale
 
 @Composable
 fun BillPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
-    val selectedDateMillis by viewModel.selectedDateMillis.collectAsState()
-    val bills by viewModel.billsForSelectedDate.collectAsState()
+    val allBills by viewModel.allBills.collectAsState()
+    val monthSummary by viewModel.monthSummary.collectAsState()
 
     val expenseCats by viewModel.getCategoriesByType(BillType.EXPENSE)
         .collectAsState(initial = emptyList())
@@ -73,13 +71,23 @@ fun BillPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
     var showAddDialog by remember { mutableStateOf(false) }
     var editingBill by remember { mutableStateOf<Bill?>(null) }
 
-    val dateFormat = SimpleDateFormat("yyyy年MM月dd日", Locale.CHINESE)
-    val dayFormat = SimpleDateFormat("EEEE", Locale.CHINESE)
     val timeFormat = SimpleDateFormat("HH:mm", Locale.CHINESE)
+    val dateHeaderFormat = SimpleDateFormat("MM月dd日 EEEE", Locale.CHINESE)
 
-    // Calculate daily totals
-    val dailyExpense = bills.filter { it.type == BillType.EXPENSE }.sumOf { it.amountInCents }
-    val dailyIncome = bills.filter { it.type == BillType.INCOME }.sumOf { it.amountInCents }
+    // Refresh month summary on first load
+    LaunchedEffect(Unit) {
+        viewModel.refreshMonthSummary()
+    }
+
+    // Group bills by day (descending order - recent first)
+    val billsByDay = remember(allBills) {
+        val cal = Calendar.getInstance()
+        allBills.groupBy { bill ->
+            cal.timeInMillis = bill.dateMillis
+            "${cal.get(Calendar.YEAR)}-${cal.get(Calendar.MONTH)}-${cal.get(Calendar.DAY_OF_MONTH)}"
+        }.toList()
+            .sortedByDescending { (key, _) -> key }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -108,61 +116,80 @@ fun BillPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
             }
         }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(padding),
+            contentPadding = PaddingValues(bottom = 80.dp)
         ) {
-            // Date navigation header
-            DateNavigator(
-                selectedDateMillis = selectedDateMillis,
-                onDateChange = { viewModel.setSelectedDate(it) },
-                dateFormat = dateFormat,
-                dayFormat = dayFormat
-            )
+            // ===== Header: Month Summary =====
+            item(key = "month_summary") {
+                MonthSummaryCard(
+                    monthSummary = monthSummary,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
 
-            // Daily summary
-            DailySummary(dailyExpense = dailyExpense, dailyIncome = dailyIncome)
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Bill list
-            if (bills.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "暂无账单",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.Gray
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "点击右下角 + 添加账单",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.Gray
-                        )
+            // ===== Bills grouped by day =====
+            if (billsByDay.isEmpty()) {
+                item(key = "empty") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "暂无账单",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.Gray
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "点击右下角 + 添加账单",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.Gray
+                            )
+                        }
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(
-                        horizontal = 16.dp,
-                        vertical = 8.dp
-                    )
-                ) {
-                    items(bills, key = { it.id }) { bill ->
+                billsByDay.forEach { (dayKey, billsOfDay) ->
+                    // Parse date for header
+                    val parts = dayKey.split("-")
+                    val year = parts[0].toInt()
+                    val month = parts[1].toInt()
+                    val day = parts[2].toInt()
+                    val cal = Calendar.getInstance().apply {
+                        set(Calendar.YEAR, year)
+                        set(Calendar.MONTH, month)
+                        set(Calendar.DAY_OF_MONTH, day)
+                    }
+                    val dateHeader = dateHeaderFormat.format(cal.time)
+
+                    // Calculate daily total
+                    val dayExpense = billsOfDay.filter { it.type == BillType.EXPENSE }.sumOf { it.amountInCents }
+                    val dayIncome = billsOfDay.filter { it.type == BillType.INCOME }.sumOf { it.amountInCents }
+
+                    // Date header
+                    item(key = "header_$dayKey") {
+                        DailyDateHeader(
+                            dateText = dateHeader,
+                            expense = dayExpense,
+                            income = dayIncome,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    // Bill items for this day
+                    items(billsOfDay, key = { "bill_${it.id}" }) { bill ->
                         BillItem(
                             bill = bill,
                             timeFormat = timeFormat,
                             onEdit = { editingBill = it },
-                            onDelete = { viewModel.deleteBill(bill) }
+                            onDelete = { viewModel.deleteBill(bill) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
                         )
                     }
                 }
@@ -197,111 +224,114 @@ fun BillPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun DateNavigator(
-    selectedDateMillis: Long,
-    onDateChange: (Long) -> Unit,
-    dateFormat: SimpleDateFormat,
-    dayFormat: SimpleDateFormat
-) {
-    val today = Calendar.getInstance()
+private fun MonthSummaryCard(monthSummary: com.example.bill.ui.viewmodel.MonthSummary, modifier: Modifier = Modifier) {
+    val expense = monthSummary.totalExpense
+    val income = monthSummary.totalIncome
+    val balance = income - expense
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    val dateFormat = SimpleDateFormat("yyyy年MM月", Locale.CHINESE)
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            IconButton(onClick = {
-                val cal = Calendar.getInstance().apply { timeInMillis = selectedDateMillis }
-                cal.add(Calendar.DAY_OF_MONTH, -1)
-                onDateChange(cal.timeInMillis)
-            }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "前一天")
-            }
+            Text(
+                text = dateFormat.format(Date(System.currentTimeMillis())),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
 
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = dateFormat.format(Date(selectedDateMillis)),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = dayFormat.format(Date(selectedDateMillis)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
-                )
-            }
+            // Balance
+            Text(
+                text = "结余",
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.Gray
+            )
+            Text(
+                text = String.format("%.2f", balance / 100.0),
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+                color = if (balance >= 0) IncomeColor else ExpenseColor
+            )
 
-            IconButton(onClick = {
-                val cal = Calendar.getInstance().apply { timeInMillis = selectedDateMillis }
-                cal.add(Calendar.DAY_OF_MONTH, 1)
-                // Don't allow future dates
-                if (cal.timeInMillis <= today.timeInMillis) {
-                    onDateChange(cal.timeInMillis)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Income & Expense row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("收入", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                    Text(
+                        text = String.format("%.2f", income / 100.0),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = IncomeColor
+                    )
                 }
-            }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "后一天")
-            }
-        }
-
-        // Today button
-        if (selectedDateMillis < today.timeInMillis) {
-            androidx.compose.material3.TextButton(onClick = {
-                onDateChange(today.timeInMillis)
-            }) {
-                Text("回到今天", fontSize = 12.sp)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("支出", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                    Text(
+                        text = String.format("%.2f", expense / 100.0),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = ExpenseColor
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun DailySummary(dailyExpense: Long, dailyIncome: Long) {
-    Card(
-        modifier = Modifier
+private fun DailyDateHeader(
+    dateText: String,
+    expense: Long,
+    income: Long,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        shape = RoundedCornerShape(12.dp)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
+        Text(
+            text = dateText,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("支出", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+            if (expense > 0) {
                 Text(
-                    text = String.format("%.2f", dailyExpense / 100.0),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = ExpenseColor
+                    text = "支出 ¥${String.format("%.2f", expense / 100.0)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ExpenseColor,
+                    fontWeight = FontWeight.Medium
                 )
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("收入", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+            if (income > 0) {
                 Text(
-                    text = String.format("%.2f", dailyIncome / 100.0),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = IncomeColor
-                )
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("结余", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-                Text(
-                    text = String.format("%.2f", (dailyIncome - dailyExpense) / 100.0),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (dailyIncome >= dailyExpense) IncomeColor else ExpenseColor
+                    text = "收入 ¥${String.format("%.2f", income / 100.0)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = IncomeColor,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
@@ -314,12 +344,13 @@ private fun BillItem(
     bill: Bill,
     timeFormat: SimpleDateFormat,
     onEdit: (Bill) -> Unit,
-    onDelete: (Bill) -> Unit
+    onDelete: (Bill) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .combinedClickable(
                 onClick = { },

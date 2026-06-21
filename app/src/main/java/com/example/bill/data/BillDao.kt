@@ -49,6 +49,18 @@ interface BillDao {
 
     @Query("DELETE FROM bills WHERE category = :category AND type = :type")
     suspend fun deleteBillsByCategory(category: String, type: BillType): Int
+
+    @Query("SELECT SUM(amountInCents) FROM bills WHERE dateMillis BETWEEN :startMillis AND :endMillis AND type = :type")
+    suspend fun getTotalByTypeBetweenSuspend(startMillis: Long, endMillis: Long, type: BillType): Long?
+
+    @Query("SELECT COUNT(*) FROM bills WHERE dateMillis BETWEEN :startMillis AND :endMillis AND type = :type")
+    suspend fun getCountByTypeBetween(startMillis: Long, endMillis: Long, type: BillType): Int
+
+    @Query("SELECT COUNT(*) FROM bills WHERE dateMillis BETWEEN :startMillis AND :endMillis")
+    suspend fun getCountBetween(startMillis: Long, endMillis: Long): Int
+
+    @Query("SELECT category, SUM(amountInCents) as total, COUNT(*) as count FROM bills WHERE dateMillis BETWEEN :startMillis AND :endMillis AND type = :type GROUP BY category ORDER BY total DESC")
+    suspend fun getCategoryBreakdownBetween(startMillis: Long, endMillis: Long, type: BillType): List<CategoryBreakdown>
 }
 
 data class CategoryTotal(
@@ -59,4 +71,10 @@ data class CategoryTotal(
 data class DailyTotal(
     val dayStamp: Long,
     val total: Long
+)
+
+data class CategoryBreakdown(
+    val category: String,
+    val total: Long,
+    val count: Int
 )

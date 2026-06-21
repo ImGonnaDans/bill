@@ -244,7 +244,7 @@ fun AddBillDialog(
                         return@Button
                     }
                     val amountDouble = amountText.toDoubleOrNull()
-                    if (amountDouble == null || amountDouble <= 0) {
+                    if (amountDouble == null || amountDouble < 0) {
                         amountError = "请输入有效金额"
                         return@Button
                     }

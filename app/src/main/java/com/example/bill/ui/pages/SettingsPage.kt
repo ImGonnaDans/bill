@@ -1,5 +1,6 @@
 package com.example.bill.ui.pages
 
+import android.os.Build
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -14,6 +15,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +23,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,6 +93,7 @@ fun SettingsPage(
 
     var showDeleteAllConfirm by remember { mutableStateOf(false) }
     var categoriesExpanded by remember { mutableStateOf(false) }
+    var autoAddExpanded by remember { mutableStateOf(false) }
     var showAddCategoryDialog by remember { mutableStateOf<BillType?>(null) }
     var newCategoryName by remember { mutableStateOf("") }
 
@@ -100,6 +105,28 @@ fun SettingsPage(
 
     var pendingImportUri by remember { mutableStateOf<Uri?>(null) }
     var pendingImportFileName by remember { mutableStateOf("") }
+
+    val autoAddDelaySeconds by viewModel.autoAddDelaySeconds.collectAsState()
+
+    val notifListenerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { }
+
+    fun openNotificationListenerSettings() {
+        val intent = android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS.let {
+            android.content.Intent(it)
+        }
+        notifListenerLauncher.launch(intent)
+    }
+
+    fun openBatteryOptimizationSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val intent = android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS.let {
+                android.content.Intent(it, android.net.Uri.parse("package:${context.packageName}"))
+            }
+            notifListenerLauncher.launch(intent)
+        }
+    }
 
     LaunchedEffect(operationMessage) {
         operationMessage?.let { msg ->
@@ -309,6 +336,150 @@ fun SettingsPage(
                                 Text("收入类别", fontSize = 13.sp)
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ===== 自动记账设置 =====
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { autoAddExpanded = !autoAddExpanded },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("自动记账设置",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f))
+                    Icon(
+                        imageVector = if (autoAddExpanded) Icons.Default.ArrowDropDown else Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = if (autoAddExpanded) "收起" else "展开",
+                        tint = Color.Gray
+                    )
+                }
+
+                AnimatedVisibility(visible = autoAddExpanded) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text("监听付款通知后自动弹出添加账单窗口，并填写好金额",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray)
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Delay seconds setting
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text("延迟时间：", style = MaterialTheme.typography.bodyMedium)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            OutlinedButton(
+                                onClick = { viewModel.setAutoAddDelaySeconds(autoAddDelaySeconds - 1) },
+                                enabled = autoAddDelaySeconds > 1,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.size(40.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("-", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "${autoAddDelaySeconds} 秒",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.width(60.dp),
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            OutlinedButton(
+                                onClick = { viewModel.setAutoAddDelaySeconds(autoAddDelaySeconds + 1) },
+                                enabled = autoAddDelaySeconds < 30,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.size(40.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("+", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Notification listener permission
+                        OutlinedButton(
+                            onClick = { openNotificationListenerSettings() },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("开启通知监听权限", fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("需在系统设置中允许本应用读取通知",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray)
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Notification permission detailed guide
+                        Text("操作步骤：",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.DarkGray)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("1. 开启「通知监听权限」— 用于接收支付通知",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray)
+                        Text("2. 支持App：支付宝、微信、美团、抖音、京东、淘宝、拼多多",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray)
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Battery optimization
+                        OutlinedButton(
+                            onClick = { openBatteryOptimizationSettings() },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("开启忽略电池优化", fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("防止系统在后台杀死监听服务",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray)
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(12.dp))
+
                     }
                 }
             }
