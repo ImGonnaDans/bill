@@ -220,7 +220,13 @@ private fun getNotificationTitle(sbn: StatusBarNotification): String? {
     return extras.getString(NotificationCompat.EXTRA_TITLE)?.trim()
 }
 
-private val PAYMENT_KEYWORDS = listOf("成功支付", "支付成功", "成功付款", "付款成功")
+private val PAYMENT_PATTERNS = listOf(
+    Pattern.compile("成功支付"),
+    Pattern.compile("支付成功"),
+    Pattern.compile("成功付款"),
+    Pattern.compile("付款成功"),
+    Pattern.compile("你有一笔.*?元的支出")
+)
 
 private fun hasPaymentKeyword(text: String): Boolean =
-    PAYMENT_KEYWORDS.any { text.contains(it) }
+    PAYMENT_PATTERNS.any { it.matcher(text).find() }
