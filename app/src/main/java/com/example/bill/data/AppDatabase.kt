@@ -18,7 +18,7 @@ abstract class AppDatabase : RoomDatabase() {
         private var INSTANCE: AppDatabase? = null
 
         private val defaultExpenseNames = listOf(
-            "餐饮", "交通", "购物", "娱乐", "居住", "服饰", "医疗", "教育", "其他"
+            "餐饮", "交通", "购物", "娱乐", "住房", "服饰", "医疗", "教育", "其他"
         )
         private val defaultIncomeNames = listOf(
             "薪资", "理财", "奖金", "兼职", "红包", "经营", "其他"

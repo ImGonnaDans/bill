@@ -23,7 +23,7 @@ val PieColors = listOf(
     Color(0xFF42A5F5), // 交通 - Blue
     Color(0xFFAB47BC), // 购物 - Purple
     Color(0xFF66BB6A), // 娱乐 - Green
-    Color(0xFFEF5350), // 居住 - Red
+    Color(0xFFEF5350), // 住房 - Red
     Color(0xFF26C6DA), // 服饰 - Cyan
     Color(0xFFFFCA28), // 医疗 - Yellow
     Color(0xFF8D6E63), // 教育 - Brown

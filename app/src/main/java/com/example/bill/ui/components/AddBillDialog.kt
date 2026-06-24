@@ -49,7 +49,7 @@ data class CategoryItem(val name: String, val icon: String)
 
 val defaultCategoryEmojis = mapOf(
     "餐饮" to "🍽", "交通" to "🚗", "购物" to "🛍", "娱乐" to "🎮",
-    "居住" to "🏠", "服饰" to "👔", "医疗" to "💊", "教育" to "📚",
+    "住房" to "🏠", "服饰" to "👔", "医疗" to "💊", "教育" to "📚",
     "薪资" to "💰", "理财" to "📈", "奖金" to "🏆", "兼职" to "💼",
     "红包" to "🧧", "经营" to "🏪", "其他" to "📦"
 )

@@ -1,15 +1,43 @@
-*.iml
+# Gradle
 .gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
 /build
-/captures
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# Local
+*.jks
+*.keystore
+*.properties
+signing.properties
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# NDK
 .externalNativeBuild
 .cxx
-local.properties
+
+# Build captures
+/captures
+
+# Navigation editor
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+
+# Logs & traces
+*.log
+*.hprof
+*.trace
+
+# App release (APK should not be committed)
+app/release/

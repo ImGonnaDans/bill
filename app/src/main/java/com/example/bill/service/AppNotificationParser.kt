@@ -40,18 +40,15 @@ object AlipayParser : AppNotificationParser {
     override fun parse(sbn: StatusBarNotification): ParsedNotification? {
         val text = getNotificationText(sbn) ?: return null
         if (!hasAmountIndicator(text)) return null
-
-        val isIncome = text.contains("成功收款") || text.contains("到账") || text.contains("向你付款")
-        val billType = if (isIncome) BillType.INCOME else BillType.EXPENSE
+        if (!hasPaymentKeyword(text)) return null
 
         val amount = AmountExtractor.extract(text) ?: return null
-        val merchant = extractMerchant(text, listOf("向", "来自", "收款方"))
 
         return ParsedNotification(
             amountInCents = amount,
-            merchant = merchant ?: "支付宝",
-            billType = billType,
-            defaultCategory = "其他",
+            merchant = "支付宝",
+            billType = BillType.EXPENSE,
+            defaultCategory = "餐饮",
             appName = "支付宝"
         )
     }
@@ -62,12 +59,13 @@ object MeituanParser : AppNotificationParser {
     override fun parse(sbn: StatusBarNotification): ParsedNotification? {
         val text = getNotificationText(sbn) ?: return null
         if (!hasAmountIndicator(text)) return null
+        if (!hasPaymentKeyword(text)) return null
 
         val amount = AmountExtractor.extract(text) ?: return null
         val category = when {
             text.contains("外卖") -> "餐饮"
             text.contains("到店") || text.contains("买单") -> "餐饮"
-            text.contains("酒店") || text.contains("旅行") -> "居住"
+            text.contains("酒店") || text.contains("旅行") -> "住房"
             text.contains("电影") || text.contains("娱乐") -> "娱乐"
             else -> "餐饮"
         }
@@ -87,6 +85,7 @@ object DouyinParser : AppNotificationParser {
     override fun parse(sbn: StatusBarNotification): ParsedNotification? {
         val text = getNotificationText(sbn) ?: return null
         if (!hasAmountIndicator(text)) return null
+        if (!hasPaymentKeyword(text)) return null
 
         val amount = AmountExtractor.extract(text) ?: return null
 
@@ -105,7 +104,7 @@ object JDParser : AppNotificationParser {
     override fun parse(sbn: StatusBarNotification): ParsedNotification? {
         val text = getNotificationText(sbn) ?: return null
         if (!hasAmountIndicator(text)) return null
-        if (!text.contains("支付成功") && !text.contains("付款成功")) return null
+        if (!hasPaymentKeyword(text)) return null
 
         val amount = AmountExtractor.extract(text) ?: return null
 
@@ -124,7 +123,7 @@ object TaobaoParser : AppNotificationParser {
     override fun parse(sbn: StatusBarNotification): ParsedNotification? {
         val text = getNotificationText(sbn) ?: return null
         if (!hasAmountIndicator(text)) return null
-        if (!text.contains("交易成功") && !text.contains("付款成功") && !text.contains("支付成功")) return null
+        if (!hasPaymentKeyword(text)) return null
 
         val amount = AmountExtractor.extract(text) ?: return null
 
@@ -143,7 +142,7 @@ object PddParser : AppNotificationParser {
     override fun parse(sbn: StatusBarNotification): ParsedNotification? {
         val text = getNotificationText(sbn) ?: return null
         if (!hasAmountIndicator(text)) return null
-        if (!text.contains("拼单") && !text.contains("支付") && !text.contains("已支付")) return null
+        if (!hasPaymentKeyword(text)) return null
 
         val amount = AmountExtractor.extract(text) ?: return null
 
@@ -162,17 +161,15 @@ object WechatParser : AppNotificationParser {
     override fun parse(sbn: StatusBarNotification): ParsedNotification? {
         val text = getNotificationText(sbn) ?: return null
         if (!hasAmountIndicator(text)) return null
+        if (!hasPaymentKeyword(text)) return null
 
         val amount = AmountExtractor.extract(text) ?: return null
 
-        val isIncome = text.contains("到账") || text.contains("收款") || text.contains("收到") || text.contains("退还")
-        val billType = if (isIncome) BillType.INCOME else BillType.EXPENSE
-
         return ParsedNotification(
             amountInCents = amount,
-            merchant = if (isIncome) "微信收款" else "微信支付",
-            billType = billType,
-            defaultCategory = "其他",
+            merchant = "微信支付",
+            billType = BillType.EXPENSE,
+            defaultCategory = "餐饮",
             appName = "微信"
         )
     }
@@ -223,13 +220,7 @@ private fun getNotificationTitle(sbn: StatusBarNotification): String? {
     return extras.getString(NotificationCompat.EXTRA_TITLE)?.trim()
 }
 
-private fun extractMerchant(text: String, keywords: List<String>): String? {
-    for (keyword in keywords) {
-        val pattern = Pattern.compile("""${keyword}\s*([^\s]+)""")
-        val matcher = pattern.matcher(text)
-        if (matcher.find()) {
-            return matcher.group(1)
-        }
-    }
-    return null
-}
+private val PAYMENT_KEYWORDS = listOf("成功支付", "支付成功", "成功付款", "付款成功")
+
+private fun hasPaymentKeyword(text: String): Boolean =
+    PAYMENT_KEYWORDS.any { text.contains(it) }
