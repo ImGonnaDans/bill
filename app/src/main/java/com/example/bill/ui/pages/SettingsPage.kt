@@ -42,6 +42,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -480,6 +481,132 @@ fun SettingsPage(
                         HorizontalDivider()
                         Spacer(modifier = Modifier.height(12.dp))
 
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ===== 自定义正则规则 =====
+        val customPatterns by viewModel.customPatterns.collectAsState()
+        var newPatternText by remember { mutableStateOf("") }
+        var showPatternError by remember { mutableStateOf(false) }
+        var patternsExpanded by remember { mutableStateOf(false) }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { patternsExpanded = !patternsExpanded },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("自定义正则规则",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f))
+                    Icon(
+                        imageVector = if (patternsExpanded) Icons.Default.ArrowDropDown else Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = if (patternsExpanded) "收起" else "展开",
+                        tint = Color.Gray
+                    )
+                }
+
+                AnimatedVisibility(visible = patternsExpanded) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text("添加自定义匹配规则，用 * 表示金额位置",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("例如：您有一笔*人民币的消费",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray)
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = newPatternText,
+                                onValueChange = {
+                                    newPatternText = it
+                                    showPatternError = false
+                                },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("输入正则规则...") },
+                                singleLine = true,
+                                isError = showPatternError,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            Button(
+                                onClick = {
+                                    if (newPatternText.isBlank() || !newPatternText.contains("*")) {
+                                        showPatternError = true
+                                    } else {
+                                        viewModel.addCustomPattern(newPatternText.trim())
+                                        newPatternText = ""
+                                        showPatternError = false
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("添加")
+                            }
+                        }
+
+                        if (showPatternError) {
+                            Text("请输入有效规则（包含 * 号表示金额）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error)
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (customPatterns.isEmpty()) {
+                            Text("暂无自定义规则",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(8.dp))
+                        } else {
+                            customPatterns.forEach { pattern ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = pattern,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { viewModel.removeCustomPattern(pattern) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "删除",
+                                            tint = Color(0xFFE53935),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

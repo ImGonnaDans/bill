@@ -5,16 +5,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import android.util.Log
-import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import com.example.bill.MainActivity
 import java.util.Locale
 
 class NotificationMonitorService : NotificationListenerService() {
@@ -23,6 +17,7 @@ class NotificationMonitorService : NotificationListenerService() {
         private const val TAG = "NotifMonitor"
         private const val PREFS_NAME = "auto_add_prefs"
         private const val KEY_DELAY_SECONDS = "auto_add_delay_seconds"
+        private const val KEY_CUSTOM_PATTERNS = "custom_patterns"
         private const val DEFAULT_DELAY = 5
 
         private const val FOREGROUND_CHANNEL_ID = "listener_service"
@@ -40,6 +35,24 @@ class NotificationMonitorService : NotificationListenerService() {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit().putInt(KEY_DELAY_SECONDS, seconds.coerceIn(1, 30)).apply()
         }
+
+        fun getCustomPatterns(context: Context): List<String> {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = prefs.getString(KEY_CUSTOM_PATTERNS, "[]") ?: "[]"
+            return try {
+                org.json.JSONArray(json).let { arr ->
+                    (0 until arr.length()).map { arr.getString(it) }
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+        fun setCustomPatterns(context: Context, patterns: List<String>) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = org.json.JSONArray(patterns).toString()
+            prefs.edit().putString(KEY_CUSTOM_PATTERNS, json).apply()
+        }
     }
 
     override fun onCreate() {
@@ -49,15 +62,36 @@ class NotificationMonitorService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        val packageName = sbn.packageName
-        val parser = AppMatcher.findParser(packageName) ?: return
+        val text = getNotificationText(sbn) ?: return
 
-        val parsed = parser.parse(sbn) ?: return
+        // Map package name to readable app name
+        val appName = packageNameToAppName(sbn.packageName)
 
-        if (parsed.amountInCents < 0) return
+        var parsed: ParsedNotification? = null
 
-        // Send a notification with fullScreenIntent to auto-open the activity
-        // (fullScreenIntent works from background on Android 14+, while startActivity is silently blocked)
+        // 1. Try built-in patterns
+        parsed = parseNotification(text, appName)
+
+        // 2. If not matched, try custom patterns
+        if (parsed == null) {
+            val customPatterns = getCustomPatterns(this)
+            for (pattern in customPatterns) {
+                val amount = matchCustomPattern(text, pattern)
+                if (amount != null && amount >= 0) {
+                    parsed = ParsedNotification(
+                        amountInCents = amount,
+                        merchant = appName,
+                        billType = com.example.bill.data.BillType.EXPENSE,
+                        defaultCategory = "餐饮",
+                        appName = appName
+                    )
+                    break
+                }
+            }
+        }
+
+        if (parsed == null || parsed.amountInCents < 0) return
+
         sendBillDetectedNotification(parsed)
     }
 
@@ -79,6 +113,17 @@ class NotificationMonitorService : NotificationListenerService() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(fgChannel)
         manager.createNotificationChannel(billChannel)
+    }
+
+    private fun packageNameToAppName(packageName: String): String = when (packageName) {
+        "com.eg.android.AlipayGphone" -> "支付宝"
+        "com.sankuai.meituan" -> "美团"
+        "com.ss.android.ugc.aweme" -> "抖音"
+        "com.jingdong.app.mail" -> "京东"
+        "com.taobao.taobao" -> "淘宝"
+        "com.xunmeng.pinduoduo" -> "拼多多"
+        "com.tencent.mm" -> "微信"
+        else -> packageName.substringAfterLast('.').take(6)
     }
 
     private fun startForegroundService() {

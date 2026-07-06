@@ -17,16 +17,17 @@ import com.example.bill.data.CategoryEntity
 import com.example.bill.data.CategoryTotal
 import com.example.bill.data.DailyTotal
 import com.example.bill.data.ExcelManager
+import com.example.bill.service.NotificationMonitorService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
+import androidx.core.content.edit
 
 enum class StatsMode {
     YEAR, MONTH, CUSTOM
@@ -45,7 +46,7 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("bill_prefs", Context.MODE_PRIVATE)
     private val autoAddPrefs = application.getSharedPreferences("auto_add_prefs", Context.MODE_PRIVATE)
 
-    private val _avatarUri = MutableStateFlow<String?>(prefs.getString("avatar_uri", null))
+    private val _avatarUri = MutableStateFlow(prefs.getString("avatar_uri", null))
     val avatarUri: StateFlow<String?> = _avatarUri
 
     private val _autoAddDelaySeconds = MutableStateFlow(
@@ -53,15 +54,36 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
     )
     val autoAddDelaySeconds: StateFlow<Int> = _autoAddDelaySeconds
 
+    private val _customPatterns = MutableStateFlow(
+        NotificationMonitorService.getCustomPatterns(application)
+    )
+    val customPatterns: StateFlow<List<String>> = _customPatterns
+
     fun setAutoAddDelaySeconds(seconds: Int) {
         val clamped = seconds.coerceIn(1, 30)
         _autoAddDelaySeconds.value = clamped
-        autoAddPrefs.edit().putInt("auto_add_delay_seconds", clamped).apply()
+        autoAddPrefs.edit { putInt("auto_add_delay_seconds", clamped) }
+    }
+
+    fun addCustomPattern(pattern: String) {
+        val current = _customPatterns.value.toMutableList()
+        if (pattern.isNotBlank() && pattern !in current) {
+            current.add(pattern.trim())
+            _customPatterns.value = current
+            NotificationMonitorService.setCustomPatterns(getApplication(), current)
+        }
+    }
+
+    fun removeCustomPattern(pattern: String) {
+        val current = _customPatterns.value.toMutableList()
+        current.remove(pattern)
+        _customPatterns.value = current
+        NotificationMonitorService.setCustomPatterns(getApplication(), current)
     }
 
     fun setAvatarUri(uri: String?) {
         _avatarUri.value = uri
-        prefs.edit().putString("avatar_uri", uri).apply()
+        prefs.edit { putString("avatar_uri", uri) }
     }
 
     val allBills: StateFlow<List<Bill>>
@@ -102,10 +124,8 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
 
     // Custom range
     private val _customStartMillis = MutableStateFlow(startOfCurrentMonthMillis())
-    val customStartMillis: StateFlow<Long> = _customStartMillis
 
     private val _customEndMillis = MutableStateFlow(endOfCurrentMonthMillis())
-    val customEndMillis: StateFlow<Long> = _customEndMillis
 
     // Computed stats period
     private val _statsStartMillis = MutableStateFlow(0L)
@@ -221,12 +241,12 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
 
     // ===== Year Navigation =====
     fun increaseYear() {
-        _statsYear.value = _statsYear.value + 1
+        _statsYear.value += 1
         recalcStatsPeriod()
     }
 
     fun decreaseYear() {
-        _statsYear.value = _statsYear.value - 1
+        _statsYear.value -= 1
         recalcStatsPeriod()
     }
 
