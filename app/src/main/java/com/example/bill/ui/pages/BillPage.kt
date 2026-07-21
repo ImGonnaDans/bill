@@ -84,7 +84,10 @@ fun BillPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
         val cal = Calendar.getInstance()
         allBills.groupBy { bill ->
             cal.timeInMillis = bill.dateMillis
-            "${cal.get(Calendar.YEAR)}-${cal.get(Calendar.MONTH)}-${cal.get(Calendar.DAY_OF_MONTH)}"
+            String.format(Locale.US, "%04d-%02d-%02d",
+                cal.get(Calendar.YEAR),
+                cal.get(Calendar.MONTH) + 1,
+                cal.get(Calendar.DAY_OF_MONTH))
         }.toList()
             .sortedByDescending { (key, _) -> key }
     }
@@ -163,7 +166,7 @@ fun BillPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
                     val day = parts[2].toInt()
                     val cal = Calendar.getInstance().apply {
                         set(Calendar.YEAR, year)
-                        set(Calendar.MONTH, month)
+                        set(Calendar.MONTH, month - 1)
                         set(Calendar.DAY_OF_MONTH, day)
                     }
                     val dateHeader = dateHeaderFormat.format(cal.time)
