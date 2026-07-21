@@ -1,6 +1,7 @@
 package com.example.bill.ui.pages
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,7 +22,6 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -38,7 +38,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -46,7 +45,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.bill.data.BillType
 import com.example.bill.data.CategoryTotal
-import com.example.bill.data.DailyTotal
 import com.example.bill.ui.components.LineChart
 import com.example.bill.ui.components.PieChart
 import com.example.bill.ui.theme.BalanceColor
@@ -60,7 +58,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun StatsPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
     val statsMode by viewModel.statsMode.collectAsState()
@@ -73,7 +71,6 @@ fun StatsPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
     val expenseTotal by viewModel.statsExpenseTotal.collectAsState()
     val incomeTotal by viewModel.statsIncomeTotal.collectAsState()
     val statsCount by viewModel.statsCount.collectAsState()
-    val statsDailyAvg by viewModel.statsDailyAvg.collectAsState()
     val categoryBreakdown by viewModel.statsCategoryBreakdown.collectAsState()
 
     val pagerState = rememberPagerState(
@@ -83,8 +80,6 @@ fun StatsPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
 
     val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINESE)
-    val yearMonthFormat = SimpleDateFormat("yyyy年", Locale.CHINESE)
-    val monthFormat = SimpleDateFormat("yyyy年M月", Locale.CHINESE)
 
     // Load data initially and when mode changes
     LaunchedEffect(statsMode, statsStart, statsEnd) {
@@ -210,7 +205,6 @@ fun StatsPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
                     type = BillType.EXPENSE,
                     total = expenseTotal,
                     count = statsCount,
-                    dailyAvg = statsDailyAvg,
                     categoryBreakdown = categoryBreakdown,
                     categoryTotals = categoryTotals,
                     statsStart = statsStart,
@@ -223,7 +217,6 @@ fun StatsPage(viewModel: BillViewModel, modifier: Modifier = Modifier) {
                     type = BillType.INCOME,
                     total = incomeTotal,
                     count = statsCount,
-                    dailyAvg = statsDailyAvg,
                     categoryBreakdown = categoryBreakdown,
                     categoryTotals = categoryTotals,
                     statsStart = statsStart,
@@ -354,16 +347,17 @@ private fun CustomDateSelector(
             onDismissRequest = { showStartPicker = false },
             confirmButton = {
                 TextButton(onClick = {
-                    state.selectedDateMillis?.let { start ->
-                        if (start <= endMillis) {
-                            onRangeChanged(start, endMillis)
-                        }
+                    val selectedStart = state.selectedDateMillis
+                    if (selectedStart != null && selectedStart <= endMillis) {
+                        onRangeChanged(selectedStart, endMillis)
                     }
                     showStartPicker = false
                 }) { Text("确定") }
             },
             dismissButton = {
-                TextButton(onClick = { showStartPicker = false }) { Text("取消") }
+                TextButton(onClick = {
+                    showStartPicker = false
+                }) { Text("取消") }
             }
         ) {
             DatePicker(state = state)
@@ -376,8 +370,10 @@ private fun CustomDateSelector(
             onDismissRequest = { showEndPicker = false },
             confirmButton = {
                 TextButton(onClick = {
-                    state.selectedDateMillis?.let { end ->
-                        val cal = Calendar.getInstance().apply { timeInMillis = end }
+                    val selectedEnd = state.selectedDateMillis
+                    if (selectedEnd != null) {
+                        val cal = Calendar.getInstance()
+                        cal.timeInMillis = selectedEnd
                         cal.set(Calendar.HOUR_OF_DAY, 23)
                         cal.set(Calendar.MINUTE, 59)
                         cal.set(Calendar.SECOND, 59)
@@ -388,7 +384,9 @@ private fun CustomDateSelector(
                 }) { Text("确定") }
             },
             dismissButton = {
-                TextButton(onClick = { showEndPicker = false }) { Text("取消") }
+                TextButton(onClick = {
+                    showEndPicker = false
+                }) { Text("取消") }
             }
         ) {
             DatePicker(state = state)
@@ -472,7 +470,7 @@ private fun TypeAmountButton(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = String.format("%.2f", amount / 100.0),
+                text = String.format(Locale.US, "%.2f", amount / 100.0),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = if (label == "结余") {
@@ -488,7 +486,6 @@ private fun StatsContentBlocks(
     type: BillType,
     total: Long,
     count: Int,
-    dailyAvg: Double,
     categoryBreakdown: List<com.example.bill.data.CategoryBreakdown>,
     categoryTotals: List<CategoryTotal>,
     statsStart: Long,
@@ -537,7 +534,7 @@ private fun StatsContentBlocks(
                 Text("日均$typeLabel", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = String.format("%.1f", total / 100.0 / ((statsEnd - statsStart) / 86400000 + 1).coerceAtLeast(1)),
+                    text = String.format(Locale.US, "%.1f", total / 100.0 / ((statsEnd - statsStart) / 86400000 + 1).coerceAtLeast(1)),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = typeColor
@@ -594,8 +591,9 @@ private fun StatsContentBlocks(
     Spacer(modifier = Modifier.height(16.dp))
 
     // ===== Block 4: Category breakdown list =====
-    val breakdownData = if (categoryBreakdown.isNotEmpty()) categoryBreakdown
-    else pieChartData.map { com.example.bill.data.CategoryBreakdown(category = it.category, total = it.total, count = 0) }
+    val breakdownData = categoryBreakdown.ifEmpty {
+        pieChartData.map { com.example.bill.data.CategoryBreakdown(category = it.category, total = it.total, count = 0) }
+    }
 
     Text(
         text = "${typeLabel}分类明细",
@@ -645,7 +643,7 @@ private fun StatsContentBlocks(
                             modifier = Modifier.weight(1f)
                         )
                         Text(
-                            text = String.format("%.2f", item.total / 100.0),
+                            text = String.format(Locale.US, "%.2f", item.total / 100.0),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = typeColor,
