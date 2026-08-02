@@ -139,7 +139,7 @@ fun SettingsPage(
     val avatarLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
-        uri?.let { viewModel.setAvatarUri(it.toString()) }
+        viewModel.setAvatarUri(uri)
     }
 
     val exportLauncher = rememberLauncherForActivityResult(

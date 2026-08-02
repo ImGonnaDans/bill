@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Calendar
 import androidx.core.content.edit
 
@@ -81,9 +82,33 @@ class BillViewModel(application: Application) : AndroidViewModel(application) {
         NotificationMonitorService.setCustomPatterns(getApplication(), current)
     }
 
-    fun setAvatarUri(uri: String?) {
-        _avatarUri.value = uri
-        prefs.edit { putString("avatar_uri", uri) }
+    fun setAvatarUri(uri: Uri?) {
+        if (uri == null) {
+            // Clear avatar
+            _avatarUri.value = null
+            prefs.edit { remove("avatar_uri") }
+            File(getApplication<Application>().filesDir, "avatar.jpg").delete()
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                val outputFile = File(context.filesDir, "avatar.jpg")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    outputFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: run {
+                    _operationMessage.value = "无法读取所选图片"
+                    return@launch
+                }
+                val fileUri = Uri.fromFile(outputFile).toString()
+                _avatarUri.value = fileUri
+                prefs.edit { putString("avatar_uri", fileUri) }
+            } catch (e: Exception) {
+                _operationMessage.value = "保存头像失败: ${e.message}"
+            }
+        }
     }
 
     val allBills: StateFlow<List<Bill>>

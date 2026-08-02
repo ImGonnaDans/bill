@@ -19,6 +19,7 @@ class NotificationMonitorService : NotificationListenerService() {
         private const val KEY_DELAY_SECONDS = "auto_add_delay_seconds"
         private const val KEY_CUSTOM_PATTERNS = "custom_patterns"
         private const val DEFAULT_DELAY = 5
+        private val DEFAULT_CUSTOM_PATTERNS = listOf("你有一笔*元的支出")
 
         private const val FOREGROUND_CHANNEL_ID = "listener_service"
         private const val NOTIF_CHANNEL_ID = "bill_detected"
@@ -38,6 +39,9 @@ class NotificationMonitorService : NotificationListenerService() {
 
         fun getCustomPatterns(context: Context): List<String> {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            if (!prefs.contains(KEY_CUSTOM_PATTERNS)) {
+                return DEFAULT_CUSTOM_PATTERNS
+            }
             val json = prefs.getString(KEY_CUSTOM_PATTERNS, "[]") ?: "[]"
             return try {
                 org.json.JSONArray(json).let { arr ->
@@ -69,24 +73,19 @@ class NotificationMonitorService : NotificationListenerService() {
 
         var parsed: ParsedNotification? = null
 
-        // 1. Try built-in patterns
-        parsed = parseNotification(text, appName)
-
-        // 2. If not matched, try custom patterns
-        if (parsed == null) {
-            val customPatterns = getCustomPatterns(this)
-            for (pattern in customPatterns) {
-                val amount = matchCustomPattern(text, pattern)
-                if (amount != null && amount >= 0) {
-                    parsed = ParsedNotification(
-                        amountInCents = amount,
-                        merchant = appName,
-                        billType = com.example.bill.data.BillType.EXPENSE,
-                        defaultCategory = "餐饮",
-                        appName = appName
-                    )
-                    break
-                }
+        // Match against user-defined custom patterns
+        val customPatterns = getCustomPatterns(this)
+        for (pattern in customPatterns) {
+            val amount = matchCustomPattern(text, pattern)
+            if (amount != null && amount >= 0) {
+                parsed = ParsedNotification(
+                    amountInCents = amount,
+                    merchant = appName,
+                    billType = com.example.bill.data.BillType.EXPENSE,
+                    defaultCategory = "餐饮",
+                    appName = appName
+                )
+                break
             }
         }
 
