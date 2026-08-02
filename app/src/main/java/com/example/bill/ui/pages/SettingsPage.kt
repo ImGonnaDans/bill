@@ -86,6 +86,7 @@ fun SettingsPage(
     val processingState by viewModel.processingState.collectAsState()
     val operationMessage by viewModel.operationMessage.collectAsState()
     val avatarUri by viewModel.avatarUri.collectAsState()
+    val allBills by viewModel.allBills.collectAsState()
 
     val expenseCats by viewModel.getCategoriesByType(BillType.EXPENSE)
         .collectAsState(initial = emptyList())
@@ -211,7 +212,20 @@ fun SettingsPage(
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("数据管理", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("数据管理",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f))
+                    Text(
+                        text = "共 ${allBills.size} 条",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text("导出为 Excel (.xlsx) 格式，支持导入备份",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray)
@@ -645,7 +659,7 @@ fun SettingsPage(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text("记账本 v1.1.0",
+        Text("记账本 v3.0",
             style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
         Spacer(modifier = Modifier.height(24.dp))
     }
