@@ -1,8 +1,6 @@
 package com.example.bill.service
 
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -58,20 +56,17 @@ class AutoAddBillActivity : ComponentActivity() {
             return
         }
 
-        // Delay a bit to show the dialog after the notification appears
-        Handler(Looper.getMainLooper()).postDelayed({
-            setContent {
-                AutoAddDialog(
-                    amountInCents = amountInCents,
-                    merchant = merchant,
-                    billType = BillType.valueOf(billTypeName),
-                    defaultCategory = defaultCategory,
-                    appName = appName,
-                    onDismiss = { finish() },
-                    onSaved = { finish() }
-                )
-            }
-        }, 500)
+        setContent {
+            AutoAddDialog(
+                amountInCents = amountInCents,
+                merchant = merchant,
+                billType = BillType.valueOf(billTypeName),
+                defaultCategory = defaultCategory,
+                appName = appName,
+                onDismiss = { finish() },
+                onSaved = { finish() }
+            )
+        }
     }
 
     @Composable

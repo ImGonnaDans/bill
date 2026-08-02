@@ -32,7 +32,7 @@
         <activity
             android:name=".service.AutoAddBillActivity"
             android:exported="false"
-            android:theme="@style/Theme.Bill"
+            android:theme="@style/Theme.Bill.Transparent"
             android:taskAffinity=""
             android:excludeFromRecents="true"
             android:noHistory="true"
